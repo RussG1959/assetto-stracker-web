@@ -140,3 +140,9 @@ body {
   font-size: 12px;
   color: #4b5563;
 }
+
+/* fastest best lap highlight */
+.best-lap-best {
+  color: #7c3aed;
+  font-weight: 600;
+}

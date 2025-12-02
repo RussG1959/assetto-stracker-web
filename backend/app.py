@@ -215,10 +215,97 @@ def session_detail(sessionid):
     best_rows = fetchall_dict(best_sql, {"sid": sessionid})
     best_map = {r["playerinsessionid"]: r["best_laptime"] for r in best_rows}
 
-    # Compose adjustment string from deltas
-    for p in participants:
-        p["best_laptime"] = best_map.get(p["playerinsessionid"])
+    # Overall best lap in the session (for highlighting fastest best lap)
+    overall_best = None
+    if best_map:
+        overall_best = min(
+            (v for v in best_map.values() if v is not None),
+            default=None,
+        )
 
+    # Lap counts per driver (to determine if driver is laps down)
+    lap_count_sql = """
+    SELECT
+      pis.playerinsessionid,
+      COUNT(*) AS lap_count
+    FROM lap l
+    JOIN playerinsession pis ON pis.playerinsessionid = l.playerinsessionid
+    WHERE pis.sessionid = :sid
+    GROUP BY pis.playerinsessionid
+    """
+    lap_count_rows = fetchall_dict(lap_count_sql, {"sid": sessionid})
+    lap_count_map = {r["playerinsessionid"]: int(r.get("lap_count", 0)) for r in lap_count_rows}
+
+    # Pit stop summary per driver
+    pit_sql = """
+    SELECT
+      pis.playerinsessionid,
+      SUM(
+        CASE
+          WHEN l.timeinpitlane IS NOT NULL AND l.timeinpitlane > 0
+          THEN 1
+          ELSE 0
+        END
+      ) AS pit_stops,
+      COALESCE(SUM(l.timeinpitlane), 0) AS pit_lane_time
+    FROM lap l
+    JOIN playerinsession pis ON pis.playerinsessionid = l.playerinsessionid
+    WHERE pis.sessionid = :sid
+    GROUP BY pis.playerinsessionid
+    """
+    pit_rows = fetchall_dict(pit_sql, {"sid": sessionid})
+    pit_map = {
+        r["playerinsessionid"]: {
+            "pit_stops": int(r.get("pit_stops") or 0),
+            "pit_lane_time": int(r.get("pit_lane_time") or 0),
+        }
+        for r in pit_rows
+    }
+
+    # Find fastest total race time (1st place finishtime)
+    fastest_finishtime = None
+    fastest_lap_count = None
+    for p in participants:
+        finishtime = p.get("finishtime")
+        if finishtime is not None and finishtime > 0:
+            if fastest_finishtime is None or finishtime < fastest_finishtime:
+                fastest_finishtime = finishtime
+                pid_sess = p["playerinsessionid"]
+                fastest_lap_count = lap_count_map.get(pid_sess, 0)
+
+    # Compose adjustment string, attach best lap, total time, gap, and pit info
+    for p in participants:
+        pid_sess = p["playerinsessionid"]
+
+        best_lap = best_map.get(pid_sess)
+        p["best_laptime"] = best_lap
+
+        # Total race time (finishtime in ms)
+        finishtime = p.get("finishtime")
+        p["total_time_ms"] = finishtime if finishtime is not None and finishtime > 0 else None
+
+        # Gap to first: based on total race time
+        # If driver is laps down, show lap difference; otherwise show time gap
+        gap_to_first = None
+        gap_laps_down = None
+        if finishtime is not None and finishtime > 0 and fastest_finishtime is not None:
+            driver_lap_count = lap_count_map.get(pid_sess, 0)
+            if fastest_lap_count is not None and driver_lap_count < fastest_lap_count:
+                # Driver is laps down
+                gap_laps_down = fastest_lap_count - driver_lap_count
+            else:
+                # Same number of laps (or more), calculate time gap
+                gap_to_first = finishtime - fastest_finishtime
+        
+        p["gap_to_first_ms"] = gap_to_first
+        p["gap_laps_down"] = gap_laps_down
+
+        # Pit stats
+        pit_info = pit_map.get(pid_sess, {})
+        p["pit_stops"] = pit_info.get("pit_stops", 0)
+        p["pit_lane_time_ms"] = pit_info.get("pit_lane_time", 0)
+
+        # Human-readable adjustment summary from correction deltas
         adj_parts = []
         if p["deltapoints"] != 0:
             adj_parts.append(f"{'+' if p['deltapoints'] > 0 else ''}{p['deltapoints']} pts")

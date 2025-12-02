@@ -28,6 +28,17 @@ function formatDurationFromSeconds(seconds) {
   return `${mins}m ${secs.toString().padStart(2, "0")}s`;
 }
 
+// Gap formatter: handles both time gap (ms) and laps down
+function formatGap(gapMs, lapsDown) {
+  if (lapsDown != null && lapsDown > 0) {
+    return `+${lapsDown} lap${lapsDown === 1 ? "" : "s"}`;
+  }
+  if (gapMs == null || gapMs === 0) return "—";
+  const abs = Math.abs(gapMs);
+  const formatted = formatLap(abs);
+  return `${gapMs > 0 ? "+" : "-"}${formatted}`;
+}
+
 export default function PublicSessions({
   externalSessionId = null,
   onExternalSessionHandled = () => {},
@@ -97,6 +108,15 @@ export default function PublicSessions({
   }, [externalSessionId]);
 
   const bestOfSelected = driverLaps ? driverLaps.best_ms : null;
+
+  // Overall best lap across all participants (for frontend highlighting)
+  const overallBestMs =
+    detail && detail.participants.length > 0
+      ? detail.participants.reduce((min, p) => {
+          if (p.best_laptime == null) return min;
+          return min == null || p.best_laptime < min ? p.best_laptime : min;
+        }, null)
+      : null;
 
   return (
     <div className="grid" style={{ gridTemplateColumns: "1fr 1fr" }}>
@@ -232,33 +252,55 @@ export default function PublicSessions({
                   <th>Driver</th>
                   <th>Car</th>
                   <th>Best Lap</th>
+                  <th>Total time</th>
+                  <th>Gap to 1st</th>
+                  <th>Pit Stops</th>
+                  <th>Pit lane time</th>
                   <th>Adjustment</th>
                   <th>Comment</th>
                 </tr>
               </thead>
               <tbody>
-                {detail.participants.map((p) => (
-                  <tr key={p.playerinsessionid}>
-                    <td>{p.finishposition ?? "-"}</td>
-                    <td>
-                      <button
-                        className="btn btn-secondary"
-                        onClick={() =>
-                          openDriverLaps(
-                            detail.session.sessionid,
-                            p.playerid
-                          )
-                        }
-                      >
-                        {p.driver_name}
-                      </button>
-                    </td>
-                    <td>{p.car_name || "-"}</td>
-                    <td>{formatLap(p.best_laptime)}</td>
-                    <td>{p.adjustment || "-"}</td>
-                    <td>{p.comment || ""}</td>
-                  </tr>
-                ))}
+                {detail.participants.map((p) => {
+                  const isOverallBest =
+                    overallBestMs != null &&
+                    p.best_laptime != null &&
+                    p.best_laptime === overallBestMs;
+                  return (
+                    <tr key={p.playerinsessionid}>
+                      <td>{p.finishposition ?? "-"}</td>
+                      <td>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() =>
+                            openDriverLaps(
+                              detail.session.sessionid,
+                              p.playerid
+                            )
+                          }
+                        >
+                          {p.driver_name}
+                        </button>
+                      </td>
+                      <td>{p.car_name || "-"}</td>
+                      <td>
+                        <span
+                          className={
+                            "best-lap" + (isOverallBest ? " best-lap-best" : "")
+                          }
+                        >
+                          {formatLap(p.best_laptime)}
+                        </span>
+                      </td>
+                      <td>{formatLap(p.total_time_ms)}</td>
+                      <td>{formatGap(p.gap_to_first_ms, p.gap_laps_down)}</td>
+                      <td>{p.pit_stops ?? 0}</td>
+                      <td>{formatLap(p.pit_lane_time_ms)}</td>
+                      <td>{p.adjustment || "-"}</td>
+                      <td>{p.comment || ""}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
 
