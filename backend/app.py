@@ -18,6 +18,7 @@ Env:
 
 import os
 from collections import defaultdict
+from datetime import datetime, timezone
 
 from flask import Flask, jsonify, request, send_from_directory, abort
 from flask_sqlalchemy import SQLAlchemy
@@ -132,14 +133,51 @@ def list_sessions():
 def session_detail(sessionid):
     """
     Session detail:
-      - base session info
+      - base session info (including derived track name, duration, ISO timestamps)
       - participants
       - best lap per driver
       - piscorrections deltas as "adjustment" + comment
     """
-    session = fetchone_dict("SELECT * FROM session WHERE sessionid = :id", {"id": sessionid})
+    session = fetchone_dict(
+        "SELECT * FROM session WHERE sessionid = :id", {"id": sessionid}
+    )
     if not session:
         abort(404, "session not found")
+
+    # Enrich session with human‑friendly fields for the UI
+    # Track name (from tracks table)
+    track_name = None
+    if session.get("trackid"):
+        track_row = fetchone_dict(
+            "SELECT uitrackname FROM tracks WHERE trackid = :tid",
+            {"tid": session["trackid"]},
+        )
+        if track_row:
+            track_name = track_row.get("uitrackname")
+    session["track_name"] = track_name
+
+    # Helper to normalise timestamps to ISO 8601 (UTC) for potential consumers
+    def _to_iso(ts):
+        if ts is None:
+            return None
+        # sTracker schema stores timestamps as integer seconds since epoch
+        if isinstance(ts, (int, float)):
+            return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+        # Fallback: cast to string
+        return str(ts)
+
+    session["start_iso"] = _to_iso(session.get("starttimedate"))
+    session["end_iso"] = _to_iso(session.get("endtimedate"))
+
+    # Duration in seconds (prefer computed from start/end, otherwise use raw column)
+    if session.get("starttimedate") and session.get("endtimedate"):
+        try:
+            duration = int(session["endtimedate"] - session["starttimedate"])
+            session["duration_seconds"] = max(duration, 0)
+        except Exception:
+            session["duration_seconds"] = session.get("duration")
+    else:
+        session["duration_seconds"] = session.get("duration")
 
     # Participants + corrections (deltas only; we don't rely on base laps/points columns)
     participant_sql = """

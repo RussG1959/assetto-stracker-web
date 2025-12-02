@@ -10,6 +10,24 @@ function sessionTypeClass(type) {
   return "type-other";
 }
 
+// Convert integer seconds since epoch (sTracker schema) to a human readable string
+function formatTimestampFromSeconds(seconds) {
+  if (!seconds || typeof seconds !== "number") return "-";
+  try {
+    return new Date(seconds * 1000).toLocaleString();
+  } catch {
+    return "-";
+  }
+}
+
+// Simple duration formatter from seconds → "Xm YYs"
+function formatDurationFromSeconds(seconds) {
+  if (!seconds || typeof seconds !== "number" || seconds <= 0) return "-";
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.floor(seconds % 60);
+  return `${mins}m ${secs.toString().padStart(2, "0")}s`;
+}
+
 export default function PublicSessions({
   externalSessionId = null,
   onExternalSessionHandled = () => {},
@@ -181,8 +199,30 @@ export default function PublicSessions({
               <strong>Session:</strong> #{detail.session.sessionid} •{" "}
               {detail.session.sessiontype}
             </div>
-            <div style={{ fontSize: 12, color: "#555", marginTop: 4 }}>
-              Server: {detail.session.serveripport || "-"}
+            <div className="session-meta">
+              <div>
+                <strong>Track:</strong>{" "}
+                {detail.session.track_name ||
+                  detail.session.track ||
+                  detail.session.trackid ||
+                  "-"}
+              </div>
+              <div>
+                <strong>Type:</strong> {detail.session.sessiontype || "-"}
+              </div>
+              <div>
+                <strong>Duration:</strong>{" "}
+                {formatDurationFromSeconds(
+                  detail.session.duration_seconds ?? detail.session.duration
+                )}
+              </div>
+              <div>
+                <strong>Start:</strong>{" "}
+                {formatTimestampFromSeconds(detail.session.starttimedate)}
+              </div>
+              <div>
+                <strong>Server:</strong> {detail.session.serveripport || "-"}
+              </div>
             </div>
 
             <table className="table" style={{ marginTop: 8 }}>
