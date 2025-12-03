@@ -262,16 +262,22 @@ def session_detail(sessionid):
         for r in pit_rows
     }
 
-    # Find fastest total race time (1st place finishtime)
+    # Determine session type (race vs practice/qualify)
+    session_type = (session.get("sessiontype") or "").lower()
+    is_race = "race" in session_type
+
+    # For race sessions: find fastest total race time (1st place finishtime)
+    # For practice/qualify: gap will be calculated from best lap time
     fastest_finishtime = None
     fastest_lap_count = None
-    for p in participants:
-        finishtime = p.get("finishtime")
-        if finishtime is not None and finishtime > 0:
-            if fastest_finishtime is None or finishtime < fastest_finishtime:
-                fastest_finishtime = finishtime
-                pid_sess = p["playerinsessionid"]
-                fastest_lap_count = lap_count_map.get(pid_sess, 0)
+    if is_race:
+        for p in participants:
+            finishtime = p.get("finishtime")
+            if finishtime is not None and finishtime > 0:
+                if fastest_finishtime is None or finishtime < fastest_finishtime:
+                    fastest_finishtime = finishtime
+                    pid_sess = p["playerinsessionid"]
+                    fastest_lap_count = lap_count_map.get(pid_sess, 0)
 
     # Compose adjustment string, attach best lap, total time, gap, and pit info
     for p in participants:
@@ -280,22 +286,29 @@ def session_detail(sessionid):
         best_lap = best_map.get(pid_sess)
         p["best_laptime"] = best_lap
 
-        # Total race time (finishtime in ms)
+        # Total race time (finishtime in ms) - only relevant for race sessions
         finishtime = p.get("finishtime")
         p["total_time_ms"] = finishtime if finishtime is not None and finishtime > 0 else None
 
-        # Gap to first: based on total race time
-        # If driver is laps down, show lap difference; otherwise show time gap
+        # Gap to first calculation depends on session type
         gap_to_first = None
         gap_laps_down = None
-        if finishtime is not None and finishtime > 0 and fastest_finishtime is not None:
-            driver_lap_count = lap_count_map.get(pid_sess, 0)
-            if fastest_lap_count is not None and driver_lap_count < fastest_lap_count:
-                # Driver is laps down
-                gap_laps_down = fastest_lap_count - driver_lap_count
-            else:
-                # Same number of laps (or more), calculate time gap
-                gap_to_first = finishtime - fastest_finishtime
+        
+        if is_race:
+            # Race: gap based on total race time
+            # If driver is laps down, show lap difference; otherwise show time gap
+            if finishtime is not None and finishtime > 0 and fastest_finishtime is not None:
+                driver_lap_count = lap_count_map.get(pid_sess, 0)
+                if fastest_lap_count is not None and driver_lap_count < fastest_lap_count:
+                    # Driver is laps down
+                    gap_laps_down = fastest_lap_count - driver_lap_count
+                else:
+                    # Same number of laps (or more), calculate time gap
+                    gap_to_first = finishtime - fastest_finishtime
+        else:
+            # Practice/Qualify: gap based on best lap time
+            if best_lap is not None and overall_best is not None:
+                gap_to_first = best_lap - overall_best
         
         p["gap_to_first_ms"] = gap_to_first
         p["gap_laps_down"] = gap_laps_down

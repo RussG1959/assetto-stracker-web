@@ -252,10 +252,20 @@ export default function PublicSessions({
                   <th>Driver</th>
                   <th>Car</th>
                   <th>Best Lap</th>
-                  <th>Total time</th>
-                  <th>Gap to 1st</th>
-                  <th>Pit Stops</th>
-                  <th>Pit lane time</th>
+                  {(() => {
+                    const sessionType = (detail.session.sessiontype || "").toLowerCase();
+                    const isRace = sessionType.includes("race");
+                    return isRace ? (
+                      <>
+                        <th>Total time</th>
+                        <th>Gap to 1st</th>
+                        <th>Pit Stops</th>
+                        <th>Pit lane time</th>
+                      </>
+                    ) : (
+                      <th>Gap to 1st</th>
+                    );
+                  })()}
                   <th>Adjustment</th>
                   <th>Comment</th>
                 </tr>
@@ -266,6 +276,8 @@ export default function PublicSessions({
                     overallBestMs != null &&
                     p.best_laptime != null &&
                     p.best_laptime === overallBestMs;
+                  const sessionType = (detail.session.sessiontype || "").toLowerCase();
+                  const isRace = sessionType.includes("race");
                   return (
                     <tr key={p.playerinsessionid}>
                       <td>{p.finishposition ?? "-"}</td>
@@ -292,10 +304,16 @@ export default function PublicSessions({
                           {formatLap(p.best_laptime)}
                         </span>
                       </td>
-                      <td>{formatLap(p.total_time_ms)}</td>
-                      <td>{formatGap(p.gap_to_first_ms, p.gap_laps_down)}</td>
-                      <td>{p.pit_stops ?? 0}</td>
-                      <td>{formatLap(p.pit_lane_time_ms)}</td>
+                      {isRace ? (
+                        <>
+                          <td>{formatLap(p.total_time_ms)}</td>
+                          <td>{formatGap(p.gap_to_first_ms, p.gap_laps_down)}</td>
+                          <td>{p.pit_stops ?? 0}</td>
+                          <td>{formatLap(p.pit_lane_time_ms)}</td>
+                        </>
+                      ) : (
+                        <td>{formatGap(p.gap_to_first_ms, p.gap_laps_down)}</td>
+                      )}
                       <td>{p.adjustment || "-"}</td>
                       <td>{p.comment || ""}</td>
                     </tr>
