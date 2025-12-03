@@ -172,6 +172,10 @@ export default function PublicSessions({
               <th>Server</th>
               <th>Track</th>
               <th>Type</th>
+              <th>First</th>
+              <th>Second</th>
+              <th>Third</th>
+              <th>Number of drivers</th>
               <th></th>
             </tr>
           </thead>
@@ -190,6 +194,10 @@ export default function PublicSessions({
                     {r.sessiontype}
                   </span>
                 </td>
+                <td>{r.first || "-"}</td>
+                <td>{r.second || "-"}</td>
+                <td>{r.third || "-"}</td>
+                <td>{r.driver_count ?? 0}</td>
                 <td>
                   <button
                     className="btn btn-secondary"
@@ -202,7 +210,7 @@ export default function PublicSessions({
             ))}
             {rows.length === 0 && !loading && (
               <tr>
-                <td colSpan={5}>No sessions found.</td>
+                <td colSpan={9}>No sessions found.</td>
               </tr>
             )}
           </tbody>

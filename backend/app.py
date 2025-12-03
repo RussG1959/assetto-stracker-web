@@ -110,6 +110,117 @@ def list_sessions():
         {"limit": per_page, "offset": offset, "server": server_filter},
     )
 
+    # Get session IDs for this page
+    session_ids = [s["sessionid"] for s in sessions]
+
+    # Separate race sessions from practice/qualify sessions
+    race_session_ids = [
+        s["sessionid"] for s in sessions
+        if s.get("sessiontype") and "race" in s.get("sessiontype", "").lower()
+    ]
+    non_race_session_ids = [
+        s["sessionid"] for s in sessions
+        if s["sessionid"] not in race_session_ids
+    ]
+
+    # Get top 3 drivers for each session
+    top_drivers_data = {}
+    driver_counts = {}
+    
+    if session_ids:
+        # Build IN clause placeholders for parameterized query
+        placeholders = ",".join([f":sid{i}" for i in range(len(session_ids))])
+        params = {f"sid{i}": sid for i, sid in enumerate(session_ids)}
+        
+        # For race sessions: get top 3 by finish position
+        if race_session_ids:
+            race_placeholders = ",".join([f":rsid{i}" for i in range(len(race_session_ids))])
+            race_params = {f"rsid{i}": sid for i, sid in enumerate(race_session_ids)}
+            
+            race_top_drivers_sql = f"""
+            SELECT
+                pis.sessionid,
+                pis.finishposition,
+                p.name AS driver_name
+            FROM playerinsession pis
+            JOIN players p ON p.playerid = pis.playerid
+            WHERE pis.sessionid IN ({race_placeholders})
+              AND pis.finishposition IS NOT NULL
+              AND pis.finishposition <= 3
+              AND pis.finishposition > 0
+            ORDER BY pis.sessionid, pis.finishposition
+            """
+            race_top_drivers_rows = fetchall_dict(race_top_drivers_sql, race_params)
+            
+            for row in race_top_drivers_rows:
+                sid = row["sessionid"]
+                pos = int(row["finishposition"])
+                if sid not in top_drivers_data:
+                    top_drivers_data[sid] = {}
+                top_drivers_data[sid][pos] = row["driver_name"]
+        
+        # For practice/qualify sessions: get top 3 by best lap time
+        if non_race_session_ids:
+            non_race_placeholders = ",".join([f":nrsid{i}" for i in range(len(non_race_session_ids))])
+            non_race_params = {f"nrsid{i}": sid for i, sid in enumerate(non_race_session_ids)}
+            
+            practice_qualify_sql = f"""
+            WITH ranked_laps AS (
+                SELECT
+                    pis.sessionid,
+                    p.playerid,
+                    p.name AS driver_name,
+                    MIN(l.laptime) AS best_laptime,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY pis.sessionid 
+                        ORDER BY MIN(l.laptime) ASC
+                    ) AS rank
+                FROM lap l
+                JOIN playerinsession pis ON l.playerinsessionid = pis.playerinsessionid
+                JOIN players p ON p.playerid = pis.playerid
+                WHERE pis.sessionid IN ({non_race_placeholders})
+                  AND l.valid = ANY (ARRAY[1,2])
+                GROUP BY pis.sessionid, p.playerid, p.name
+            )
+            SELECT
+                sessionid,
+                rank,
+                driver_name,
+                best_laptime
+            FROM ranked_laps
+            WHERE rank <= 3
+            ORDER BY sessionid, rank
+            """
+            practice_qualify_rows = fetchall_dict(practice_qualify_sql, non_race_params)
+            
+            for row in practice_qualify_rows:
+                sid = row["sessionid"]
+                rank = row["rank"]
+                if sid not in top_drivers_data:
+                    top_drivers_data[sid] = {}
+                top_drivers_data[sid][rank] = row["driver_name"]
+
+        # Get driver counts per session
+        driver_count_sql = f"""
+        SELECT
+            pis.sessionid,
+            COUNT(DISTINCT pis.playerid) AS driver_count
+        FROM playerinsession pis
+        WHERE pis.sessionid IN ({placeholders})
+        GROUP BY pis.sessionid
+        """
+        driver_count_rows = fetchall_dict(driver_count_sql, params)
+        driver_counts = {r["sessionid"]: int(r["driver_count"]) for r in driver_count_rows}
+
+    # Attach top drivers and driver count to each session
+    for s in sessions:
+        sid = s["sessionid"]
+        top_drivers = top_drivers_data.get(sid, {})
+        s["first"] = top_drivers.get(1)
+        s["second"] = top_drivers.get(2)
+        s["third"] = top_drivers.get(3)
+        s["driver_count"] = driver_counts.get(sid, 0)
+
     servers = fetchall_dict(
         """
         SELECT DISTINCT serveripport
